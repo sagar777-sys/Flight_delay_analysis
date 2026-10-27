@@ -113,14 +113,16 @@ def get_options(df):
     return airlines, origins, b[0], b[1]
 
 
-AGGS = [
-    F.count("*").alias("flights"),
-    F.sum("cancelled").alias("cancelled"),
-    F.sum("flown").alias("flown"),
-    F.sum("delayed").alias("delayed"),
-    F.avg("arr_delay").alias("avg_arr_delay"),
-    F.avg("dep_delay").alias("avg_dep_delay"),
-]
+def _aggs():
+    """Built inside a function: Spark column expressions need a running Spark session."""
+    return [
+        F.count("*").alias("flights"),
+        F.sum("cancelled").alias("cancelled"),
+        F.sum("flown").alias("flown"),
+        F.sum("delayed").alias("delayed"),
+        F.avg("arr_delay").alias("avg_arr_delay"),
+        F.avg("dep_delay").alias("avg_dep_delay"),
+    ]
 
 
 def analyze(df, start, end, airlines, origins, threshold, min_route):
@@ -129,7 +131,7 @@ def analyze(df, start, end, airlines, origins, threshold, min_route):
          .withColumn("flown", (F.col("cancelled") == 0).cast("int"))
          .withColumn("delayed", F.when((F.col("cancelled") == 0) & (F.col("arr_delay") > threshold), 1).otherwise(0)))
 
-    k = f.agg(*AGGS).collect()[0]
+    k = f.agg(*_aggs()).collect()[0]
     total, canc = int(k["flights"] or 0), int(k["cancelled"] or 0)
     flown, delayed = int(k["flown"] or 0), int(k["delayed"] or 0)
     kpi = {"flights": total, "cancelled": canc, "flown": flown, "delayed": delayed,
@@ -139,17 +141,17 @@ def analyze(df, start, end, airlines, origins, threshold, min_route):
            "avg_arr_delay": float(k["avg_arr_delay"] or 0.0),
            "avg_dep_delay": float(k["avg_dep_delay"] or 0.0)}
 
-    by_airline = (add_rates(f.groupBy("airline").agg(*AGGS).toPandas())
+    by_airline = (add_rates(f.groupBy("airline").agg(*_aggs()).toPandas())
                   .sort_values("ontime_pct", ascending=False).reset_index(drop=True))
-    by_origin = (add_rates(f.groupBy("origin").agg(*AGGS).toPandas())
+    by_origin = (add_rates(f.groupBy("origin").agg(*_aggs()).toPandas())
                  .sort_values("avg_dep_delay", ascending=False).reset_index(drop=True))
-    routes = add_rates(f.groupBy("origin", "destination").agg(*AGGS)
+    routes = add_rates(f.groupBy("origin", "destination").agg(*_aggs())
                        .filter(F.col("flights") >= min_route).toPandas())
     routes["route"] = routes["origin"] + " → " + routes["destination"]
     routes = routes.sort_values("avg_arr_delay", ascending=False).reset_index(drop=True)
-    by_month = add_rates(f.groupBy("month").agg(*AGGS).toPandas()).sort_values("month").reset_index(drop=True)
-    by_hour = add_rates(f.groupBy("hour").agg(*AGGS).toPandas()).sort_values("hour").reset_index(drop=True)
-    airline_month = add_rates(f.groupBy("airline", "month").agg(*AGGS).toPandas())
+    by_month = add_rates(f.groupBy("month").agg(*_aggs()).toPandas()).sort_values("month").reset_index(drop=True)
+    by_hour = add_rates(f.groupBy("hour").agg(*_aggs()).toPandas()).sort_values("hour").reset_index(drop=True)
+    airline_month = add_rates(f.groupBy("airline", "month").agg(*_aggs()).toPandas())
 
     d = f.filter(F.col("delayed") == 1)
     by_reason = (d.groupBy("delay_reason")
